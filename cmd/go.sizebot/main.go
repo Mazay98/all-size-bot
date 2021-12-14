@@ -17,8 +17,7 @@ import (
 	"time"
 )
 
-//const ttlCommandForUser = time.Hour * 24
-const ttlCommandForUser = time.Minute
+const ttlCommandForUser = time.Hour * 24
 
 func init() {
 	if err := godotenv.Load(); err != nil {
