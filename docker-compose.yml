@@ -1,0 +1,14 @@
+version: '3.7'
+
+services:
+  postgresql:
+    image: postgres:12.2-alpine
+    environment:
+      POSTGRES_USER: db_owner
+      POSTGRES_PASSWORD: 1234
+      POSTGRES_DB: maindb
+      TZ: 'Europe/Moscow'
+    ports:
+      - "5432:5432"
+    volumes:
+      - ./postgresql/maindb/data:/var/lib/postgresql/data:cached
