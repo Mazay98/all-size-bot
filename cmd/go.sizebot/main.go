@@ -26,6 +26,7 @@ func init() {
 }
 
 func main() {
+	rand.Seed(time.Now().UnixNano())
 
 	appConfig := config.New()
 	ctx := grace.ShutdownContext(context.Background())
@@ -54,7 +55,6 @@ func main() {
 	updates := bot.GetUpdatesChan(u)
 
 	userCommands := make(entities.UserCommands)
-	userCommand := make(map[string]entities.UserCommand)
 
 	for update := range updates {
 		if update.Message != nil { // If we got a message
@@ -64,13 +64,14 @@ func main() {
 				continue
 			}
 
-			commandExist := false
+			userCommandExist := false
+
 			for i := range userCommands[update.Message.From.ID] {
 				commandUser, exist := userCommands[update.Message.From.ID][i][command.Command]
 				if exist {
 					timeLeft := int(commandUser.Ttl.Sub(time.Now()) / time.Minute)
 					if timeLeft > 0 {
-						commandExist = true
+						userCommandExist = true
 						msg := tgbotapi.NewMessage(
 							update.Message.Chat.ID,
 							commandUser.Result,
@@ -79,16 +80,17 @@ func main() {
 						bot.Send(msg)
 						break
 					}
-					break
 				}
 			}
 
-			if commandExist {
+			if userCommandExist {
 				continue
 			}
 
 			r := randomSize(rand.Intn(command.MinRange), rand.Intn(command.MaxRange))
 			result := fmt.Sprintf(command.Pattern, fmt.Sprintf("%.2f", r), getEmoji(r, command))
+
+			userCommand := make(map[string]entities.UserCommand)
 			userCommand[command.Command] = entities.UserCommand{
 				Ttl:    time.Now().Add(ttlCommandForUser),
 				Chat:   update.Message.Chat,
