@@ -11,4 +11,7 @@ services:
     ports:
       - "5432:5432"
     volumes:
-      - ./postgresql/maindb/data:/var/lib/postgresql/data:cached
+      - postgres_data:/var/lib/postgresql/data:cached
+
+volumes:
+  postgres_data: {}

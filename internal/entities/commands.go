@@ -23,8 +23,8 @@ type UserCommand struct {
 	Result string
 }
 
-// UserCommands is key are UserId of Users
+// UserCommands is array of UserCommand.
 type UserCommands map[int64][]map[string]UserCommand
 
-// Commands is array of commands where key is a command
+// Commands is array of commands where key is a command.
 type Commands map[string]Command

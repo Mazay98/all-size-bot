@@ -29,7 +29,7 @@ func New() *AppConfig {
 	}
 }
 
-// Helper to read an environment variable into a string or return default value
+// Helper to read an environment variable into a string or return default value.
 func getEnv(key string, defaultVal string) string {
 	if value, exists := os.LookupEnv(key); exists {
 		return value
@@ -38,7 +38,7 @@ func getEnv(key string, defaultVal string) string {
 	return defaultVal
 }
 
-// Helper to read an environment variable into a bool or return default value
+// Helper to read an environment variable into a bool or return default value.
 func getEnvAsBool(name string, defaultVal bool) bool {
 	valStr := getEnv(name, "")
 	if val, err := strconv.ParseBool(valStr); err == nil {

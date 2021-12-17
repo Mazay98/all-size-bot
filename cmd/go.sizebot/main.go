@@ -14,10 +14,11 @@ import (
 	"sizebot/internal/storage/postgres"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 )
 
-const ttlCommandForUser = time.Hour * 24
+const ttlCommandForUser = time.Minute * 30
 
 func init() {
 	if err := godotenv.Load(); err != nil {
@@ -55,85 +56,165 @@ func main() {
 	updates := bot.GetUpdatesChan(u)
 
 	userCommands := make(entities.UserCommands)
+	inlineQueries := make(chan tgbotapi.InlineQuery, 3)
 
-	for update := range updates {
-		if update.Message != nil { // If we got a message
-			text := strings.ReplaceAll(update.Message.Text, "@all_size_of_bot", "")
-			command, ok := commands[text]
-			if !ok {
-				continue
-			}
+	var wg sync.WaitGroup
+	wg.Add(2)
 
-			userCommandExist := false
-
-			for i := range userCommands[update.Message.From.ID] {
-				commandUser, exist := userCommands[update.Message.From.ID][i][command.Command]
-				if exist {
-					timeLeft := int(commandUser.Ttl.Sub(time.Now()) / time.Minute)
-					if timeLeft > 0 {
-						userCommandExist = true
-						msg := tgbotapi.NewMessage(
-							update.Message.Chat.ID,
-							commandUser.Result,
-						)
-						msg.ReplyToMessageID = update.Message.MessageID
-						bot.Send(msg)
-						break
-					}
-				}
-			}
-
-			if userCommandExist {
-				continue
-			}
-
-			r := randomSize(rand.Intn(command.MinRange), rand.Intn(command.MaxRange))
-			result := fmt.Sprintf(command.Pattern, fmt.Sprintf("%.2f", r), getEmoji(r, command))
-
-			userCommand := make(map[string]entities.UserCommand)
-			userCommand[command.Command] = entities.UserCommand{
-				Ttl:    time.Now().Add(ttlCommandForUser),
-				Chat:   update.Message.Chat,
-				Cmd:    command,
-				Result: result,
-			}
-			userCommands[update.Message.From.ID] = append(
-				userCommands[update.Message.From.ID],
-				userCommand,
+	go func() {
+		for inlineQuery := range inlineQueries {
+			params := getParamsForInlineConfig(
+				inlineQuery.From.ID,
+				inlineQuery.Query,
+				&commands,
+				&userCommands,
 			)
 
-			msg := tgbotapi.NewMessage(
-				update.Message.Chat.ID,
-				result,
-			)
-			msg.ReplyToMessageID = update.Message.MessageID
+			inlineConf := tgbotapi.InlineConfig{
+				InlineQueryID: inlineQuery.ID,
+				Results:       *params,
+			}
+			bot.Send(inlineConf)
+		}
+		wg.Done()
+	}()
 
-			bot.Send(msg)
+	go func() {
+		for update := range updates {
+			if update.Message != nil {
+				updateMessage(update, bot, &userCommands, commands)
+				continue
+			}
+			if update.InlineQuery != nil {
+				inlineQueries <- *update.InlineQuery
+
+				continue
+			}
+		}
+	}()
+
+	wg.Wait()
+	pg.Close()
+}
+
+func getParamsForInlineConfig(
+	id int64,
+	query string,
+	commands *entities.Commands,
+	userCommands *entities.UserCommands,
+) *[]interface{} {
+	var params []interface{}
+
+	for key, command := range *commands {
+		if strings.Contains(key, query) || strings.Contains(command.Description, query) {
+			commandUser := getCommandUser(id, command.Command, *userCommands)
+
+			if commandUser == nil {
+				commandUser = addCommandInUser(id, &command, *userCommands)
+			}
+
+			timeLeft := int(commandUser.Ttl.Sub(time.Now()) / time.Minute)
+			if timeLeft <= 0 {
+				commandUser = addCommandInUser(id, &command, *userCommands)
+			}
+
+			params = append(
+				params,
+				tgbotapi.NewInlineQueryResultArticle(
+					strconv.FormatUint(command.Id, 10),
+					command.Description,
+					commandUser.Result,
+				),
+			)
 		}
 	}
 
-	pg.Close()
+	return &params
+}
+func updateMessage(
+	update tgbotapi.Update,
+	bot *tgbotapi.BotAPI,
+	userCommands *entities.UserCommands,
+	commands entities.Commands,
+) {
+	text := strings.ReplaceAll(update.Message.Text, "@all_size_of_bot", "")
+	command, ok := commands[text]
+	if !ok {
+		return
+	}
+
+	commandUser := getCommandUser(update.Message.From.ID, command.Command, *userCommands)
+
+	if commandUser == nil {
+		commandUser = addCommandInUser(update.Message.From.ID, &command, *userCommands)
+	}
+
+	timeLeft := int(commandUser.Ttl.Sub(time.Now()) / time.Minute)
+	if timeLeft <= 0 {
+		commandUser = addCommandInUser(update.Message.From.ID, &command, *userCommands)
+	}
+
+	msg := tgbotapi.NewMessage(
+		update.Message.Chat.ID,
+		commandUser.Result,
+	)
+	msg.ReplyToMessageID = update.Message.MessageID
+
+	bot.Send(msg)
+}
+func getCommandUser(id int64, command string, userCommands entities.UserCommands) *entities.UserCommand {
+	for i := range userCommands[id] {
+		commandUser, ok := userCommands[id][i][command]
+		if !ok {
+			continue
+		}
+
+		return &commandUser
+	}
+
+	return nil
+}
+func addCommandInUser(id int64, command *entities.Command, userCommands entities.UserCommands) *entities.UserCommand {
+
+	r := randomSize(rand.Intn(command.MinRange), rand.Intn(command.MaxRange))
+	result := fmt.Sprintf(command.Pattern, fmt.Sprintf("%.2f", r), getEmoji(r, command))
+
+	userCommandMap := make(map[string]entities.UserCommand)
+	userCommand := entities.UserCommand{
+		Ttl:    time.Now().Add(ttlCommandForUser),
+		Cmd:    *command,
+		Result: result,
+	}
+	userCommandMap[command.Command] = userCommand
+	userCommands[id] = append(
+		userCommands[id],
+		userCommandMap,
+	)
+
+	return &userCommand
 }
 
 func randomSize(a int, b int) float32 {
 	return float32(a+b) + rand.Float32()
 }
-
-func getEmoji(n float32, c entities.Command) string {
+func getEmoji(n float32, c *entities.Command) string {
 	middle := float32(c.MaxRange / 2)
 	oneThird := float32(c.MaxRange / 3)
 	doubleOneThird := float32(oneThird * 2)
+	var emoji string
 
-	emoji := "\\U0001F613"
-	if n > oneThird && n <= middle {
-		emoji = "\\U0001F623"
-	} else if n > middle && n <= doubleOneThird {
-		emoji = "\\U0001F63C"
-	} else if n > doubleOneThird {
+	switch {
+	case n >= doubleOneThird:
 		emoji = "\\U0001F631"
+	case n >= middle:
+		emoji = "\\U0001F63C"
+	case n >= oneThird:
+		emoji = "\\U0001F63C"
+	default:
+		emoji = "\\U0001F613"
 	}
 
-	// Hex String
+	// Hex String.
 	h := strings.ReplaceAll(emoji, "\\U", "0x")
 
 	// Hex to Int
