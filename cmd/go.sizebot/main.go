@@ -9,6 +9,7 @@ import (
 	"html"
 	"log"
 	"math/rand"
+	"regexp"
 	"sizebot/internal/config"
 	"sizebot/internal/entities"
 	"sizebot/internal/storage/postgres"
@@ -73,6 +74,7 @@ func main() {
 			inlineConf := tgbotapi.InlineConfig{
 				InlineQueryID: inlineQuery.ID,
 				Results:       *params,
+				CacheTime:     1,
 			}
 			bot.Send(inlineConf)
 		}
@@ -137,7 +139,8 @@ func updateMessage(
 	userCommands *entities.UserCommands,
 	commands entities.Commands,
 ) {
-	text := strings.ReplaceAll(update.Message.Text, "@all_size_of_bot", "")
+	re := regexp.MustCompile(`@.*`)
+	text := re.ReplaceAllString(update.Message.Text, "")
 	command, ok := commands[text]
 	if !ok {
 		return
