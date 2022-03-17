@@ -37,6 +37,7 @@ func main() {
 	if err != nil {
 		log.Fatalln("failed to init postgres")
 	}
+	defer pg.Close()
 
 	commands, err := pg.Commands(ctx)
 	if err != nil {
@@ -68,12 +69,12 @@ func main() {
 				inlineQuery.From.ID,
 				inlineQuery.Query,
 				&commands,
-				&userCommands,
+				userCommands,
 			)
 
 			inlineConf := tgbotapi.InlineConfig{
 				InlineQueryID: inlineQuery.ID,
-				Results:       *params,
+				Results:       params,
 				CacheTime:     1,
 			}
 			bot.Send(inlineConf)
@@ -84,88 +85,77 @@ func main() {
 	go func() {
 		for update := range updates {
 			if update.Message != nil {
-				updateMessage(update, bot, &userCommands, commands)
+				msg := updateMessage(update, userCommands, commands)
+				bot.Send(msg)
 				continue
 			}
 			if update.InlineQuery != nil {
 				inlineQueries <- *update.InlineQuery
-
 				continue
 			}
 		}
 	}()
 
 	wg.Wait()
-	pg.Close()
 }
 
 func getParamsForInlineConfig(
 	id int64,
 	query string,
 	commands *entities.Commands,
-	userCommands *entities.UserCommands,
-) *[]interface{} {
+	userCommands entities.UserCommands,
+) []interface{} {
 	var params []interface{}
-
 	for key, command := range *commands {
-		if strings.Contains(key, query) || strings.Contains(command.Description, query) {
-			commandUser := getCommandUser(id, command.Command, *userCommands)
-
-			if commandUser == nil {
-				commandUser = addCommandInUser(id, &command, *userCommands)
-			}
-
-			timeLeft := int(commandUser.Ttl.Sub(time.Now()) / time.Minute)
-			if timeLeft <= 0 {
-				commandUser = addCommandInUser(id, &command, *userCommands)
-			}
-
-			params = append(
-				params,
-				tgbotapi.NewInlineQueryResultArticle(
-					strconv.FormatUint(command.Id, 10),
-					command.Description,
-					commandUser.Result,
-				),
-			)
+		if !strings.Contains(key, query) && !strings.Contains(command.Description, query) {
+			continue
 		}
+
+		commandUser := getUserCommand(id, &command, userCommands)
+		params = append(
+			params,
+			tgbotapi.NewInlineQueryResultArticle(
+				strconv.FormatUint(command.Id, 10),
+				command.Description,
+				commandUser.Result,
+			),
+		)
 	}
 
-	return &params
+	return params
 }
-func updateMessage(
-	update tgbotapi.Update,
-	bot *tgbotapi.BotAPI,
-	userCommands *entities.UserCommands,
-	commands entities.Commands,
-) {
+func updateMessage(update tgbotapi.Update, userCommands entities.UserCommands, commands entities.Commands) *tgbotapi.MessageConfig {
 	re := regexp.MustCompile(`@.*`)
 	text := re.ReplaceAllString(update.Message.Text, "")
 	command, ok := commands[text]
 	if !ok {
-		return
+		return nil
 	}
 
-	commandUser := getCommandUser(update.Message.From.ID, command.Command, *userCommands)
-
-	if commandUser == nil {
-		commandUser = addCommandInUser(update.Message.From.ID, &command, *userCommands)
-	}
-
-	timeLeft := int(commandUser.Ttl.Sub(time.Now()) / time.Minute)
-	if timeLeft <= 0 {
-		commandUser = addCommandInUser(update.Message.From.ID, &command, *userCommands)
-	}
-
+	commandUser := getUserCommand(update.Message.From.ID, &command, userCommands)
 	msg := tgbotapi.NewMessage(
 		update.Message.Chat.ID,
 		commandUser.Result,
 	)
 	msg.ReplyToMessageID = update.Message.MessageID
 
-	bot.Send(msg)
+	return &msg
 }
-func getCommandUser(id int64, command string, userCommands entities.UserCommands) *entities.UserCommand {
+func getUserCommand(fromId int64, command *entities.Command, userCommands entities.UserCommands) *entities.UserCommand {
+	commandUser := getCommandUserById(fromId, command.Command, userCommands)
+	if commandUser == nil {
+		commandUser = addCommandInUserFromId(fromId, command, userCommands)
+		return commandUser
+	}
+
+	timeLeft := int(commandUser.Ttl.Sub(time.Now()) / time.Minute)
+	if timeLeft <= 0 {
+		commandUser = addCommandInUserFromId(fromId, command, userCommands)
+	}
+
+	return commandUser
+}
+func getCommandUserById(id int64, command string, userCommands entities.UserCommands) *entities.UserCommand {
 	for i := range userCommands[id] {
 		commandUser, ok := userCommands[id][i][command]
 		if !ok {
@@ -177,7 +167,7 @@ func getCommandUser(id int64, command string, userCommands entities.UserCommands
 
 	return nil
 }
-func addCommandInUser(id int64, command *entities.Command, userCommands entities.UserCommands) *entities.UserCommand {
+func addCommandInUserFromId(id int64, command *entities.Command, userCommands entities.UserCommands) *entities.UserCommand {
 
 	r := randomSize(rand.Intn(command.MinRange), rand.Intn(command.MaxRange))
 	result := fmt.Sprintf(command.Pattern, fmt.Sprintf("%.2f", r), getEmoji(r, command))
@@ -203,7 +193,7 @@ func randomSize(a int, b int) float32 {
 func getEmoji(n float32, c *entities.Command) string {
 	middle := float32(c.MaxRange / 2)
 	oneThird := float32(c.MaxRange / 3)
-	doubleOneThird := float32(oneThird * 2)
+	doubleOneThird := oneThird * 2
 	var emoji string
 
 	switch {
