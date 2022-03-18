@@ -26,7 +26,6 @@ func init() {
 		log.Fatalln("No .env file found")
 	}
 }
-
 func main() {
 	rand.Seed(time.Now().UnixNano())
 
@@ -39,10 +38,8 @@ func main() {
 	}
 	defer pg.Close()
 
-	commands, err := pg.Commands(ctx)
-	if err != nil {
-		log.Fatalln("failed to get commands")
-	}
+	commands := make(chan entities.Commands, 1)
+	go getCommands(ctx, pg, commands)
 
 	bot, err := tgbotapi.NewBotAPI(appConfig.Telegram.Token)
 	if err != nil {
@@ -58,17 +55,14 @@ func main() {
 	updates := bot.GetUpdatesChan(u)
 
 	userCommands := make(entities.UserCommands)
-	inlineQueries := make(chan tgbotapi.InlineQuery, 3)
+	inlineQueries := make(chan tgbotapi.InlineQuery, 10)
 
-	var wg sync.WaitGroup
-	wg.Add(2)
-
-	go func() {
+	go func(inlineQueries chan tgbotapi.InlineQuery) {
 		for inlineQuery := range inlineQueries {
 			params := getParamsForInlineConfig(
 				inlineQuery.From.ID,
 				inlineQuery.Query,
-				&commands,
+				<-commands,
 				userCommands,
 			)
 
@@ -79,13 +73,12 @@ func main() {
 			}
 			bot.Send(inlineConf)
 		}
-		wg.Done()
-	}()
+	}(inlineQueries)
 
-	go func() {
+	go func(updates tgbotapi.UpdatesChannel) {
 		for update := range updates {
 			if update.Message != nil {
-				msg := updateMessage(update, userCommands, commands)
+				msg := updateMessageForUser(update, userCommands, <-commands)
 				bot.Send(msg)
 				continue
 			}
@@ -94,19 +87,42 @@ func main() {
 				continue
 			}
 		}
-	}()
+	}(updates)
 
+	wg := sync.WaitGroup{}
+	wg.Add(1)
 	wg.Wait()
 }
 
+// Update list commands.
+func getCommands(ctx context.Context, pg *postgres.Storage, cn chan entities.Commands) {
+	commands, err := pg.Commands(ctx)
+	if err != nil {
+		fmt.Println(err)
+		log.Fatalln("failed to get commands")
+	}
+	cn <- commands
+
+	for range time.Tick(1 * time.Hour) {
+		fmt.Println("updated!")
+		commands, err = pg.Commands(ctx)
+		if err != nil {
+			fmt.Println(err)
+			log.Fatalln("failed to get commands")
+		}
+		cn <- commands
+	}
+}
+
+// Create inline config.
 func getParamsForInlineConfig(
 	id int64,
 	query string,
-	commands *entities.Commands,
+	commands entities.Commands,
 	userCommands entities.UserCommands,
 ) []interface{} {
 	var params []interface{}
-	for key, command := range *commands {
+	for key, command := range commands {
 		if !strings.Contains(key, query) && !strings.Contains(command.Description, query) {
 			continue
 		}
@@ -124,7 +140,8 @@ func getParamsForInlineConfig(
 
 	return params
 }
-func updateMessage(update tgbotapi.Update, userCommands entities.UserCommands, commands entities.Commands) *tgbotapi.MessageConfig {
+
+func updateMessageForUser(update tgbotapi.Update, userCommands entities.UserCommands, commands entities.Commands) *tgbotapi.MessageConfig {
 	re := regexp.MustCompile(`@.*`)
 	text := re.ReplaceAllString(update.Message.Text, "")
 	command, ok := commands[text]
@@ -141,6 +158,7 @@ func updateMessage(update tgbotapi.Update, userCommands entities.UserCommands, c
 
 	return &msg
 }
+
 func getUserCommand(fromId int64, command *entities.Command, userCommands entities.UserCommands) *entities.UserCommand {
 	commandUser := getCommandUserById(fromId, command.Command, userCommands)
 	if commandUser == nil {
