@@ -104,7 +104,6 @@ func getCommands(ctx context.Context, pg *postgres.Storage, cn chan entities.Com
 	cn <- commands
 
 	for range time.Tick(1 * time.Hour) {
-		fmt.Println("updated!")
 		commands, err = pg.Commands(ctx)
 		if err != nil {
 			fmt.Println(err)
