@@ -98,7 +98,6 @@ func main() {
 func getCommands(ctx context.Context, pg *postgres.Storage, cn chan entities.Commands) {
 	commands, err := pg.Commands(ctx)
 	if err != nil {
-		fmt.Println(err)
 		log.Fatalln("failed to get commands")
 	}
 	cn <- commands
@@ -106,7 +105,6 @@ func getCommands(ctx context.Context, pg *postgres.Storage, cn chan entities.Com
 	for range time.Tick(1 * time.Hour) {
 		commands, err = pg.Commands(ctx)
 		if err != nil {
-			fmt.Println(err)
 			log.Fatalln("failed to get commands")
 		}
 		cn <- commands
