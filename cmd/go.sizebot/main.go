@@ -100,10 +100,9 @@ func main() {
 
 // Update list commands.
 func getCommands(ctx context.Context, pg *postgres.Storage, cn chan entities.Commands) {
-	for range time.Tick(5 * time.Minute) {
+	for range time.Tick(time.Hour) {
 		commands, err := pg.Commands(ctx)
 		if err != nil {
-			log.Fatalln("failed to get commands")
 		}
 		cn <- commands
 	}
