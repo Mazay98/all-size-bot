@@ -58,12 +58,12 @@ func main() {
 	userCommands := make(entities.UserCommands)
 	inlineQueries := make(chan tgbotapi.InlineQuery, 10)
 
-	go func(inlineQueries chan tgbotapi.InlineQuery, commands *entities.Commands) {
+	go func(inlineQueries chan tgbotapi.InlineQuery, commands entities.Commands) {
 		for inlineQuery := range inlineQueries {
 			params := getParamsForInlineConfig(
 				inlineQuery.From.ID,
 				inlineQuery.Query,
-				*commands,
+				commands,
 				userCommands,
 			)
 
@@ -74,12 +74,12 @@ func main() {
 			}
 			bot.Send(inlineConf)
 		}
-	}(inlineQueries, &commands)
+	}(inlineQueries, commands)
 
-	go func(updates tgbotapi.UpdatesChannel, commands *entities.Commands) {
+	go func(updates tgbotapi.UpdatesChannel, commands entities.Commands) {
 		for update := range updates {
 			if update.Message != nil {
-				msg := updateMessageForUser(update, userCommands, *commands)
+				msg := updateMessageForUser(update, userCommands, commands)
 				bot.Send(msg)
 				continue
 			}
@@ -88,25 +88,7 @@ func main() {
 				continue
 			}
 		}
-	}(updates, &commands)
-
-	commandsChan := make(chan entities.Commands, 1)
-	go getCommands(ctx, pg, commandsChan)
-
-	for commandsList := range commandsChan {
-		commands = commandsList
-	}
-}
-
-// Update list commands.
-func getCommands(ctx context.Context, pg *postgres.Storage, cn chan entities.Commands) {
-	for range time.Tick(time.Hour) {
-		commands, err := pg.Commands(ctx)
-		if err != nil {
-			log.Fatalln("failed to get commands in get comands")
-		}
-		cn <- commands
-	}
+	}(updates, commands)
 }
 
 // Create inline config.
