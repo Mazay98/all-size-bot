@@ -15,6 +15,7 @@ import (
 	"sizebot/internal/storage/postgres"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -89,6 +90,10 @@ func main() {
 			}
 		}
 	}(updates, commands)
+
+	wg := sync.WaitGroup{}
+	wg.Add(1)
+	wg.Wait()
 }
 
 // Create inline config.
