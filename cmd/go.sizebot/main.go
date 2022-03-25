@@ -9,7 +9,6 @@ import (
 	"html"
 	"log"
 	"math/rand"
-	"regexp"
 	"sizebot/internal/config"
 	"sizebot/internal/entities"
 	"sizebot/internal/storage/postgres"
@@ -79,11 +78,6 @@ func main() {
 
 	go func(updates tgbotapi.UpdatesChannel, commands entities.Commands) {
 		for update := range updates {
-			if update.Message != nil {
-				msg := updateMessageForUser(update, userCommands, commands)
-				bot.Send(msg)
-				continue
-			}
 			if update.InlineQuery != nil {
 				inlineQueries <- *update.InlineQuery
 				continue
@@ -121,24 +115,6 @@ func getParamsForInlineConfig(
 	}
 
 	return params
-}
-
-func updateMessageForUser(update tgbotapi.Update, userCommands entities.UserCommands, commands entities.Commands) *tgbotapi.MessageConfig {
-	re := regexp.MustCompile(`@.*`)
-	text := re.ReplaceAllString(update.Message.Text, "")
-	command, ok := commands[text]
-	if !ok {
-		return nil
-	}
-
-	commandUser := getUserCommand(update.Message.From.ID, &command, userCommands)
-	msg := tgbotapi.NewMessage(
-		update.Message.Chat.ID,
-		commandUser.Result,
-	)
-	msg.ReplyToMessageID = update.Message.MessageID
-
-	return &msg
 }
 
 func getUserCommand(fromId int64, command *entities.Command, userCommands entities.UserCommands) *entities.UserCommand {
