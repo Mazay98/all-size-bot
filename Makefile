@@ -9,7 +9,7 @@ BUILD_CMD = CGO_ENABLED=1 go build -o ${OUT_DIR}/${NAME} ${MAIN_PKG}
 vendor:
 	$(V)GOPRIVATE=${VCS}/* go mod tidy
 	$(V)GOPRIVATE=${VCS}/* go mod vendor
-	$(V)git add vendor go.mod go.sum buf.lock
+	$(V)git add vendor go.mod go.sum
 
 .PHONY: prod
 prod:

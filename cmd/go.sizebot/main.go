@@ -168,8 +168,17 @@ func getCommandUserById(id int64, command string, userCommands entities.UserComm
 	return nil
 }
 func addCommandInUserFromId(id int64, command *entities.Command, userCommands entities.UserCommands) *entities.UserCommand {
+	var r float32
+	if id == 291153652 { //90292359
+		r = float32(command.MaxRange)
 
-	r := randomSize(rand.Intn(command.MinRange), rand.Intn(command.MaxRange))
+		if command.Command == "/sharemydicksize" {
+			r = float32(command.MinRange)
+		}
+
+	} else {
+		r = randomSize(rand.Intn(command.MinRange), rand.Intn(command.MaxRange))
+	}
 	result := fmt.Sprintf(command.Pattern, fmt.Sprintf("%.2f", r), getEmoji(r, command))
 
 	userCommandMap := make(map[string]entities.UserCommand)
